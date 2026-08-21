@@ -53,7 +53,40 @@ namespace LwfUiScale
             }
 
             Dump(root);
-            Build(template, page.transform);
+
+            var host = FindRowHost(page.transform);
+            if (host == null)
+            {
+                Plugin.Log.LogError("UI scale: no existing row on the page to sit beside; no row added.");
+                return;
+            }
+
+            Build(template, host);
+        }
+
+        /// <summary>
+        /// Where this page keeps its rows: the parent of one of them.
+        ///
+        /// Not the page object itself. The rows sit several levels down, inside the page's
+        /// scroll view, under a layout group that positions them — parenting to the page root
+        /// put the row outside the panel entirely, at the top-left of the screen.
+        /// </summary>
+        private static Transform FindRowHost(Transform page)
+        {
+            var cell = page.GetComponentsInChildren<PullDownCell>(includeInactive: true).FirstOrDefault();
+            if (cell == null) return null;
+
+            // Same walk as the slider row: up to the highest ancestor still holding exactly one
+            // pull-down, which is a row. Its parent is the container every row shares.
+            var row = cell.transform;
+            while (row.parent != null
+                   && row.parent != page
+                   && row.parent.GetComponentsInChildren<PullDownCell>(includeInactive: true).Length == 1)
+            {
+                row = row.parent;
+            }
+
+            return row.parent;
         }
 
         /// <summary>
@@ -101,16 +134,18 @@ namespace LwfUiScale
             slider.minValue = Plugin.MinPercent;
             slider.maxValue = Plugin.MaxPercent;
             slider.SetValueWithoutNotify(Plugin.Percent);
-            slider.onValueChanged.AddListener(OnSliderChanged);
+            slider.onValueChanged.AddListener(OnSliderMoved);
+            if (slider.GetComponent<SliderCommit>() == null) slider.gameObject.AddComponent<SliderCommit>();
 
             Label(row, slider);
             Plugin.Log.LogInfo($"UI scale: row added at {Plugin.Percent}%.");
         }
 
-        private static void OnSliderChanged(float value)
+        /// <summary>Moves the readout only. The scale itself is applied by
+        /// <see cref="SliderCommit"/> when the drag ends.</summary>
+        private static void OnSliderMoved(float value)
         {
-            Plugin.Set(Mathf.RoundToInt(value));
-            RefreshValueText();
+            if (_valueText != null) _valueText.SetText($"{Mathf.RoundToInt(value)}%");
         }
 
         private static void Sync(GameObject row)
@@ -190,14 +225,20 @@ namespace LwfUiScale
             if (_dumped) return;
             _dumped = true;
 
-            var sb = new StringBuilder("UI scale: settings hierarchy\n");
+            var sb = new StringBuilder();
             Walk(root, 0, sb);
-            Plugin.Log.LogInfo(sb.ToString());
+
+            // One line per entry rather than one long message: a single multi-line log line gets
+            // truncated by the console this is read through, which lost the part that mattered.
+            foreach (var line in sb.ToString().Split('\n'))
+            {
+                if (line.Length > 0) Plugin.Log.LogInfo("hierarchy| " + line);
+            }
         }
 
         private static void Walk(Transform t, int depth, StringBuilder sb)
         {
-            if (depth > 6) return;
+            if (depth > 8) return;
 
             var parts = new List<string>();
             if (t.GetComponent<Slider>() != null) parts.Add("Slider");
