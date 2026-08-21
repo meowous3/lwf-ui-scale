@@ -54,14 +54,14 @@ namespace LwfUiScale
 
             Dump(root);
 
-            var host = FindRowHost(page.transform);
-            if (host == null)
+            var reference = FindPullDownRow(page.transform);
+            if (reference == null)
             {
                 Plugin.Log.LogError("UI scale: no existing row on the page to sit beside; no row added.");
                 return;
             }
 
-            Build(template, host);
+            Build(template, reference);
         }
 
         /// <summary>
@@ -71,13 +71,13 @@ namespace LwfUiScale
         /// scroll view, under a layout group that positions them — parenting to the page root
         /// put the row outside the panel entirely, at the top-left of the screen.
         /// </summary>
-        private static Transform FindRowHost(Transform page)
+        private static GameObject FindPullDownRow(Transform page)
         {
             var cell = page.GetComponentsInChildren<PullDownCell>(includeInactive: true).FirstOrDefault();
             if (cell == null) return null;
 
             // Same walk as the slider row: up to the highest ancestor still holding exactly one
-            // pull-down, which is a row. Its parent is the container every row shares.
+            // pull-down, which is a row.
             var row = cell.transform;
             while (row.parent != null
                    && row.parent != page
@@ -86,7 +86,7 @@ namespace LwfUiScale
                 row = row.parent;
             }
 
-            return row.parent;
+            return row.gameObject;
         }
 
         /// <summary>
@@ -109,14 +109,15 @@ namespace LwfUiScale
             return row.gameObject;
         }
 
-        private static void Build(GameObject template, Transform parent)
+        private static void Build(GameObject template, GameObject reference)
         {
-            var row = Object.Instantiate(template, parent);
+            var row = Object.Instantiate(template, reference.transform.parent);
             row.name = OurRow;
             row.SetActive(true);
             row.transform.SetAsLastSibling();
 
             StripLocalisation(row);
+            MatchGeometry(row, reference);
 
             var slider = row.GetComponentInChildren<Slider>(includeInactive: true);
             if (slider == null)
@@ -134,6 +135,7 @@ namespace LwfUiScale
             slider.minValue = Plugin.MinPercent;
             slider.maxValue = Plugin.MaxPercent;
             slider.SetValueWithoutNotify(Plugin.Percent);
+            FitSlider(row, slider);
             slider.onValueChanged.AddListener(OnSliderMoved);
             if (slider.GetComponent<SliderCommit>() == null) slider.gameObject.AddComponent<SliderCommit>();
 
@@ -143,6 +145,71 @@ namespace LwfUiScale
 
         /// <summary>Moves the readout only. The scale itself is applied by
         /// <see cref="SliderCommit"/> when the drag ends.</summary>
+        /// <summary>
+        /// Makes the copied row the size and shape of a row already on this page.
+        ///
+        /// The template comes from the Sound tab, which lays its rows out differently — left
+        /// unchanged it was wider than the panel and the list did not reserve any height for it,
+        /// so it drew over the row above. Copying the reference row's RectTransform and its
+        /// LayoutElement hands both decisions back to the page's own layout.
+        /// </summary>
+        private static void MatchGeometry(GameObject row, GameObject reference)
+        {
+            var target = row.GetComponent<RectTransform>();
+            var source = reference.GetComponent<RectTransform>();
+            if (target == null || source == null) return;
+
+            target.anchorMin = source.anchorMin;
+            target.anchorMax = source.anchorMax;
+            target.pivot = source.pivot;
+            target.sizeDelta = source.sizeDelta;
+            target.localScale = source.localScale;
+
+            var from = reference.GetComponent<LayoutElement>();
+            if (from != null)
+            {
+                var to = row.GetComponent<LayoutElement>() ?? row.AddComponent<LayoutElement>();
+                to.minWidth = from.minWidth;
+                to.minHeight = from.minHeight;
+                to.preferredWidth = from.preferredWidth;
+                to.preferredHeight = from.preferredHeight;
+                to.flexibleWidth = from.flexibleWidth;
+                to.flexibleHeight = from.flexibleHeight;
+                to.ignoreLayout = from.ignoreLayout;
+            }
+            else
+            {
+                // No LayoutElement to copy: reserve the reference row's actual height so the
+                // list still leaves room for this one.
+                var to = row.GetComponent<LayoutElement>() ?? row.AddComponent<LayoutElement>();
+                to.preferredHeight = source.rect.height;
+                to.preferredWidth = source.rect.width;
+            }
+
+            Plugin.Log.LogInfo($"UI scale: row sized {target.sizeDelta} from '{reference.name}' "
+                               + $"(rect {source.rect.width}x{source.rect.height}).");
+        }
+
+        /// <summary>
+        /// Stretches the slider across the row instead of keeping the width it had on the Sound
+        /// tab, which overran the panel. Anchored rather than sized, so it follows the row at any
+        /// resolution — and inset on the left to leave the label its space.
+        /// </summary>
+        private static void FitSlider(GameObject row, Slider slider)
+        {
+            var rect = slider.GetComponent<RectTransform>();
+            if (rect == null || rect.parent == row.transform.parent) return;
+
+            const float labelWidth = 0.42f;   // of the row, matching where the label sits
+            const float rightPad = 8f;
+
+            rect.anchorMin = new Vector2(labelWidth, 0f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.offsetMin = new Vector2(0f, 12f);
+            rect.offsetMax = new Vector2(-rightPad, -12f);
+        }
+
         private static void OnSliderMoved(float value)
         {
             if (_valueText != null) _valueText.SetText($"{Mathf.RoundToInt(value)}%");
