@@ -72,7 +72,11 @@ namespace LwfUiScale
             _next = Time.unscaledTime + IntervalSeconds;
 
             UiScale.Prune();
-            UiScale.ApplyAll(Plugin.Scale);
+
+            // ApplyAll returns how many it actually changed, which after the first pass is zero
+            // until a new canvas appears.
+            var touched = UiScale.ApplyAll(Plugin.Scale);
+            if (touched > 0) Plugin.Log.LogInfo($"UI scale: applied to {touched} new canvas scaler(s).");
         }
     }
 }

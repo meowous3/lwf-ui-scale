@@ -64,14 +64,21 @@ namespace LwfUiScale
                 Originals[scaler] = original;
             }
 
+            // Only when it actually differs. Assigning either of these marks the canvas dirty
+            // and costs a full layout rebuild, so writing the same value on a sweep rebuilt every
+            // canvas in the game once a second — which reads as a periodic stutter.
             switch (scaler.uiScaleMode)
             {
                 case CanvasScaler.ScaleMode.ScaleWithScreenSize:
-                    scaler.referenceResolution = original.ReferenceResolution / scale;
+                    var wanted = original.ReferenceResolution / scale;
+                    if ((scaler.referenceResolution - wanted).sqrMagnitude < 0.0001f) return false;
+                    scaler.referenceResolution = wanted;
                     return true;
 
                 case CanvasScaler.ScaleMode.ConstantPixelSize:
-                    scaler.scaleFactor = original.ScaleFactor * scale;
+                    var factor = original.ScaleFactor * scale;
+                    if (Mathf.Approximately(scaler.scaleFactor, factor)) return false;
+                    scaler.scaleFactor = factor;
                     return true;
 
                 default:
