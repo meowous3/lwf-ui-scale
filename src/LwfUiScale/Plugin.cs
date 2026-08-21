@@ -4,6 +4,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace LwfUiScale
 {
@@ -53,30 +54,44 @@ namespace LwfUiScale
     }
 
     /// <summary>
-    /// Reapplies the scale as canvases appear.
+    /// Reapplies the scale when a scene brings new canvases.
     ///
-    /// Every scene brings its own canvases, and the game creates more while running, so a single
-    /// pass at startup would only catch whatever existed at that moment. The sweep is cheap and
-    /// idempotent — each scaler's unscaled value is remembered the first time it is seen — but it
-    /// is not free, so it runs on an interval rather than every frame.
+    /// This used to sweep every second with
+    /// <c>FindObjectsByType&lt;CanvasScaler&gt;(FindObjectsInactive.Include)</c>, which walks
+    /// every object in the scene including inactive ones. A camera probe caught what that cost:
+    /// frame times held at 16.67ms and then spiked to 105ms, once a second, dead on the sweep
+    /// interval. Movement is deltaTime-scaled, so the camera covered six frames of ground in one
+    /// — a jolt while walking, and nothing at all while standing still.
+    ///
+    /// Canvases arrive with scenes, so that is when to look for them. Additive loads fire the
+    /// same event, and a scaler created outside one is picked up the next time the scale changes.
     /// </summary>
     internal sealed class ScaleKeeper : MonoBehaviour
     {
-        private const float IntervalSeconds = 1f;
-
-        private float _next;
-
-        private void Update()
+        private void OnEnable()
         {
-            if (Time.unscaledTime < _next) return;
-            _next = Time.unscaledTime + IntervalSeconds;
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            Apply("startup");
+        }
 
+        private void OnDisable()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+        }
+
+        private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, LoadSceneMode mode)
+        {
             UiScale.Prune();
+            Apply(scene.name);
+        }
 
-            // ApplyAll returns how many it actually changed, which after the first pass is zero
-            // until a new canvas appears.
+        private static void Apply(string reason)
+        {
             var touched = UiScale.ApplyAll(Plugin.Scale);
-            if (touched > 0) Plugin.Log.LogInfo($"UI scale: applied to {touched} new canvas scaler(s).");
+            if (touched > 0)
+            {
+                Plugin.Log.LogInfo($"UI scale: applied to {touched} canvas scaler(s) ({reason}).");
+            }
         }
     }
 }
