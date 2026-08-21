@@ -201,10 +201,11 @@ namespace LwfUiScale
             if (rect == null || rect.parent == row.transform.parent) return;
 
             const float labelWidth = 0.42f;   // of the row, matching where the label sits
+            const float valueWidth = 0.14f;   // reserved on the right for the percentage
             const float rightPad = 8f;
 
             rect.anchorMin = new Vector2(labelWidth, 0f);
-            rect.anchorMax = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f - valueWidth, 1f);
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.offsetMin = new Vector2(0f, 12f);
             rect.offsetMax = new Vector2(-rightPad, -12f);
@@ -242,13 +243,41 @@ namespace LwfUiScale
                              .ToArray();
 
             if (outside.Length > 0) outside[0].SetText(RowLabel);
-            if (outside.Length > 1) _valueText = outside[1];
+            _valueText = outside.Length > 1 ? outside[1] : MakeValueText(row, outside.FirstOrDefault());
 
             RefreshValueText();
         }
 
         private static GameObject _row;
         private static TMP_Text _valueText;
+
+        /// <summary>
+        /// Adds a readout when the copied row has none.
+        ///
+        /// The volume rows carry only their label, so there was nowhere for the percentage to go
+        /// and the slider stood alone with no number. Copying the label rather than building a
+        /// text from scratch keeps the font, size and colour the screen already uses.
+        /// </summary>
+        private static TMP_Text MakeValueText(GameObject row, TMP_Text label)
+        {
+            if (label == null) return null;
+
+            var copy = Object.Instantiate(label.gameObject, row.transform);
+            copy.name = "LwfUiScaleValue";
+
+            var text = copy.GetComponent<TMP_Text>();
+            text.alignment = TextAlignmentOptions.Right;
+            text.enableWordWrapping = false;
+
+            var rect = copy.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.86f, 0f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.offsetMin = new Vector2(0f, 0f);
+            rect.offsetMax = new Vector2(-8f, 0f);
+
+            return text;
+        }
 
         /// <summary>Shows the current percentage on whichever readout the cloned row uses.</summary>
         private static void RefreshValueText()
