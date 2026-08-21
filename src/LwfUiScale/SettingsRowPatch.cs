@@ -416,16 +416,12 @@ namespace LwfUiScale
             Plugin.Log.LogInfo($"layout| '{previous.name}' declares bottom {declaredBottom:0.#}, "
                                + $"draws to {actualBottom:0.#} (overflow {overflow:0.#})");
 
-            // The container already puts its own spacing between rows, so only the part of the
-            // overflow that eats into that gap needs making up. Padding by the whole of it
-            // double-counts and leaves the row sitting low.
-            var group = parent.GetComponent<VerticalLayoutGroup>();
-            var already = group != null ? group.spacing : 0f;
-            var needed = overflow - already;
+            // Set rather than derived. The measurement above is right about why the gap is
+            // needed, but the overflow is centred in its box and only part of it lands where it
+            // matters, so the figure that reads correctly is not the figure that is measured.
+            const float needed = 70f;
 
-            Plugin.Log.LogInfo($"layout| container already spaces {already}, adding {needed:0.#}");
-
-            if (needed <= 1f) return;
+            Plugin.Log.LogInfo($"layout| overflow {overflow:0.#}, spacer {needed}");
 
             var spacer = new GameObject("LwfUiScaleSpacer", typeof(RectTransform));
             var rect = spacer.GetComponent<RectTransform>();
