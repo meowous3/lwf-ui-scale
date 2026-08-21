@@ -1,3 +1,4 @@
+using Exception = System.Exception;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -31,6 +32,25 @@ namespace LwfUiScale
 
         private static void Postfix(GraphicSettings __instance)
         {
+            // A throw here propagates into SettingsView.SwitchTab and takes the settings screen
+            // with it. Nothing this does is worth that, so a failure costs the row and no more.
+            try
+            {
+                AddRow(__instance);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError($"UI scale: row not added at step '{_step}' — {ex}");
+            }
+        }
+
+        /// <summary>Where the build got to, so a failure names the step rather than a stack of
+        /// dynamic methods.</summary>
+        private static string _step = "start";
+
+        private static void AddRow(GraphicSettings __instance)
+        {
+            _step = "find existing";
             var page = __instance.gameObject;
 
             var existing = FindByName(page.transform, OurRow);
@@ -45,6 +65,7 @@ namespace LwfUiScale
             var view = __instance.GetComponentInParent<SettingsView>(includeInactive: true);
             var root = view != null ? view.transform : page.transform;
 
+            _step = "find slider";
             // The control comes from the Sound tab, the shape from this page.
             var sliderSource = FindSlider(root);
             var group = FindGroup(page.transform);
@@ -61,7 +82,9 @@ namespace LwfUiScale
                 return;
             }
 
+            _step = "build";
             Build(sliderSource, group);
+            _step = "done";
         }
 
 
@@ -142,7 +165,9 @@ namespace LwfUiScale
             var cellText = cell.GetComponentInChildren<TMP_Text>(includeInactive: true);
             _valueColor = cellText != null ? cellText.color : (Color?)null;
 
+            _step = "destroy pull-down";
             Object.DestroyImmediate(cell.gameObject);
+            _step = "clone slider";
 
             var sliderObject = Object.Instantiate(sliderSource, holder);
             sliderObject.name = "LwfUiScaleSlider";
@@ -178,9 +203,11 @@ namespace LwfUiScale
             slider.onValueChanged.AddListener(OnSliderMoved);
             if (slider.GetComponent<SliderCommit>() == null) slider.gameObject.AddComponent<SliderCommit>();
 
+            _step = "label";
             Label(row, sliderObject);
 
             FitRowHeight(row);
+            _step = "pad";
             PadForOverflow(row);
         }
 
