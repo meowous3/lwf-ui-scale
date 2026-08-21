@@ -191,7 +191,24 @@ namespace LwfUiScale
         private static void PlaceBelowLast(GameObject row, GameObject group)
         {
             var parent = row.transform.parent;
-            if (parent == null || parent.GetComponent<LayoutGroup>() != null) return;
+            if (parent == null) return;
+
+            var layout = parent.GetComponent<LayoutGroup>();
+            if (layout != null)
+            {
+                // The container lays its children out, so position is not ours to set — but a
+                // child added after the last rebuild is not in the arrangement yet, which is why
+                // the row drew on top of the setting above it. Adding a child marks the layout
+                // dirty for the next frame; forcing it now avoids showing the overlap at all.
+                var element = row.GetComponent<LayoutElement>();
+                if (element != null) element.ignoreLayout = false;
+
+                Canvas.ForceUpdateCanvases();
+                LayoutRebuilder.ForceRebuildLayoutImmediate(parent as RectTransform);
+
+                Plugin.Log.LogInfo($"UI scale: laid out by {layout.GetType().Name}; rebuilt.");
+                return;
+            }
 
             var rect = row.GetComponent<RectTransform>();
             var lowest = float.MaxValue;
