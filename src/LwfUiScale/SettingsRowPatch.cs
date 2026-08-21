@@ -117,8 +117,6 @@ namespace LwfUiScale
             row.transform.SetAsLastSibling();
 
             StripLocalisation(row);
-            ReserveHeight(row, group);
-            PlaceBelowLast(row, group);
 
             var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
             if (cell == null)
@@ -178,104 +176,10 @@ namespace LwfUiScale
 
             Label(row, sliderObject);
 
-            Plugin.Log.LogInfo($"UI scale: row built from '{group.name}' at {Plugin.Percent}%, "
-                               + $"slider rect {sliderRect.rect.width}x{sliderRect.rect.height}.");
+            Report(row, group);
         }
 
-        /// <summary>
-        /// Tells the layout how much room this row needs.
-        ///
-        /// A VerticalLayoutGroup asks each child for a preferred height. A cloned group with no
-        /// LayoutElement answers with whatever its children compute, which here came out as
-        /// nothing — so the row was allotted no space and the next setting was drawn straight
-        /// over it. The source group's own measurements are the right answer, since this is a
-        /// copy of it.
-        /// </summary>
-        private static void ReserveHeight(GameObject row, GameObject group)
-        {
-            var source = group.GetComponent<RectTransform>();
-            if (source == null) return;
 
-            var element = row.GetComponent<LayoutElement>() ?? row.AddComponent<LayoutElement>();
-            var from = group.GetComponent<LayoutElement>();
-
-            if (from != null)
-            {
-                element.minWidth = from.minWidth;
-                element.minHeight = from.minHeight;
-                element.preferredWidth = from.preferredWidth;
-                element.preferredHeight = from.preferredHeight;
-                element.flexibleWidth = from.flexibleWidth;
-                element.flexibleHeight = from.flexibleHeight;
-            }
-            else
-            {
-                element.preferredWidth = source.rect.width;
-                element.preferredHeight = source.rect.height;
-                element.minHeight = source.rect.height;
-            }
-
-            element.ignoreLayout = false;
-
-            Plugin.Log.LogInfo($"UI scale: reserved {element.preferredWidth}x{element.preferredHeight} "
-                               + $"(source rect {source.rect.width}x{source.rect.height}, "
-                               + $"had LayoutElement: {from != null}).");
-        }
-
-        /// <summary>
-        /// Puts the group under the last one when the container positions its children itself.
-        ///
-        /// A clone lands on top of whatever it was copied from if nothing lays it out, which is
-        /// why the row overlapped the setting above it. Where a layout group is present this does
-        /// nothing and the layout keeps its authority.
-        /// </summary>
-        private static void PlaceBelowLast(GameObject row, GameObject group)
-        {
-            var parent = row.transform.parent;
-            if (parent == null) return;
-
-            var layout = parent.GetComponent<LayoutGroup>();
-            if (layout != null)
-            {
-                // The container lays its children out, so position is not ours to set — but a
-                // child added after the last rebuild is not in the arrangement yet, which is why
-                // the row drew on top of the setting above it. Adding a child marks the layout
-                // dirty for the next frame; forcing it now avoids showing the overlap at all.
-                var element = row.GetComponent<LayoutElement>();
-                if (element != null) element.ignoreLayout = false;
-
-                Canvas.ForceUpdateCanvases();
-                LayoutRebuilder.ForceRebuildLayoutImmediate(parent as RectTransform);
-
-                Plugin.Log.LogInfo($"UI scale: laid out by {layout.GetType().Name}; rebuilt.");
-                return;
-            }
-
-            var rect = row.GetComponent<RectTransform>();
-            var lowest = float.MaxValue;
-            RectTransform anchor = null;
-
-            foreach (Transform sibling in parent)
-            {
-                if (sibling == row.transform) continue;
-                var other = sibling as RectTransform;
-                if (other == null || !sibling.gameObject.activeSelf) continue;
-
-                var bottom = other.anchoredPosition.y - other.rect.height;
-                if (bottom < lowest)
-                {
-                    lowest = bottom;
-                    anchor = other;
-                }
-            }
-
-            if (anchor == null) return;
-
-            var gap = Mathf.Abs(group.GetComponent<RectTransform>().rect.height) * 0.15f;
-            rect.anchoredPosition = new Vector2(rect.anchoredPosition.x, lowest - gap);
-
-            Plugin.Log.LogInfo($"UI scale: placed below '{anchor.name}' at y={rect.anchoredPosition.y:0.#}.");
-        }
 
         /// <summary>
         /// Sets the group's header to name this setting, and centres the percentage on the
@@ -361,6 +265,54 @@ namespace LwfUiScale
                 {
                     Object.Destroy(behaviour);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Prints what decides this row's position: the container's layout settings, and every
+        /// sibling's measurements beside our own.
+        ///
+        /// Three attempts to place the row by hand all failed, each on a guess about what was
+        /// arranging it. This prints the inputs instead.
+        /// </summary>
+        private static void Report(GameObject row, GameObject group)
+        {
+            var parent = row.transform.parent;
+            var parentRect = parent as RectTransform;
+
+            Plugin.Log.LogInfo($"layout| container '{parent.name}' rect "
+                               + $"{parentRect?.rect.width:0.#}x{parentRect?.rect.height:0.#}");
+
+            foreach (var component in parent.GetComponents<Component>())
+            {
+                Plugin.Log.LogInfo($"layout|   component {component.GetType().Name}");
+            }
+
+            if (parent.GetComponent<VerticalLayoutGroup>() is VerticalLayoutGroup v)
+            {
+                Plugin.Log.LogInfo($"layout|   vertical spacing={v.spacing} padding={v.padding.top}/{v.padding.bottom} "
+                                   + $"controlH={v.childControlHeight} forceH={v.childForceExpandHeight} "
+                                   + $"controlW={v.childControlWidth} forceW={v.childForceExpandWidth} "
+                                   + $"align={v.childAlignment}");
+            }
+
+            if (parent.GetComponent<ContentSizeFitter>() is ContentSizeFitter f)
+            {
+                Plugin.Log.LogInfo($"layout|   fitter v={f.verticalFit} h={f.horizontalFit}");
+            }
+
+            foreach (Transform child in parent)
+            {
+                var rect = child as RectTransform;
+                var element = child.GetComponent<LayoutElement>();
+                var mark = child == row.transform ? " <-- ours" : (child == group.transform ? " <-- source" : "");
+
+                Plugin.Log.LogInfo(
+                    $"layout|   child '{child.name}' active={child.gameObject.activeSelf} "
+                    + $"pos={rect?.anchoredPosition} size={rect?.rect.width:0.#}x{rect?.rect.height:0.#} "
+                    + $"anchors={rect?.anchorMin}-{rect?.anchorMax} "
+                    + $"element={(element == null ? "none" : $"min{element.minHeight}/pref{element.preferredHeight}/flex{element.flexibleHeight}/ignore{element.ignoreLayout}")}"
+                    + mark);
             }
         }
 
