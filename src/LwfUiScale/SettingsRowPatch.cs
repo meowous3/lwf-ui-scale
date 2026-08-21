@@ -117,6 +117,7 @@ namespace LwfUiScale
             row.transform.SetAsLastSibling();
 
             StripLocalisation(row);
+            ReserveHeight(row, group);
             PlaceBelowLast(row, group);
 
             var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
@@ -179,6 +180,46 @@ namespace LwfUiScale
 
             Plugin.Log.LogInfo($"UI scale: row built from '{group.name}' at {Plugin.Percent}%, "
                                + $"slider rect {sliderRect.rect.width}x{sliderRect.rect.height}.");
+        }
+
+        /// <summary>
+        /// Tells the layout how much room this row needs.
+        ///
+        /// A VerticalLayoutGroup asks each child for a preferred height. A cloned group with no
+        /// LayoutElement answers with whatever its children compute, which here came out as
+        /// nothing — so the row was allotted no space and the next setting was drawn straight
+        /// over it. The source group's own measurements are the right answer, since this is a
+        /// copy of it.
+        /// </summary>
+        private static void ReserveHeight(GameObject row, GameObject group)
+        {
+            var source = group.GetComponent<RectTransform>();
+            if (source == null) return;
+
+            var element = row.GetComponent<LayoutElement>() ?? row.AddComponent<LayoutElement>();
+            var from = group.GetComponent<LayoutElement>();
+
+            if (from != null)
+            {
+                element.minWidth = from.minWidth;
+                element.minHeight = from.minHeight;
+                element.preferredWidth = from.preferredWidth;
+                element.preferredHeight = from.preferredHeight;
+                element.flexibleWidth = from.flexibleWidth;
+                element.flexibleHeight = from.flexibleHeight;
+            }
+            else
+            {
+                element.preferredWidth = source.rect.width;
+                element.preferredHeight = source.rect.height;
+                element.minHeight = source.rect.height;
+            }
+
+            element.ignoreLayout = false;
+
+            Plugin.Log.LogInfo($"UI scale: reserved {element.preferredWidth}x{element.preferredHeight} "
+                               + $"(source rect {source.rect.width}x{source.rect.height}, "
+                               + $"had LayoutElement: {from != null}).");
         }
 
         /// <summary>
