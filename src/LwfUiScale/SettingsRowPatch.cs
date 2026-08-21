@@ -1,99 +1,159 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
+using System.Text;
 using HarmonyLib;
 using TMPro;
 using UI.Settings;
 using UnityEngine;
+using UnityEngine.UI;
 using Utility.Localization;
 
 namespace LwfUiScale
 {
     /// <summary>
-    /// Adds a UI Scale row to the Graphic Settings page.
+    /// Adds a UI Scale slider to the settings screen.
     ///
-    /// The row is a clone of the Resolution row rather than anything built here. Graphic
-    /// Settings finds its own controls by GameObject name — <c>FindPullDownCell("Resolution")</c>
-    /// looks up a child called "Resolution" and takes the <c>PullDownCell</c> inside it — so a
-    /// copy of that object is a complete, correctly-styled row with a working pull-down, and
-    /// <c>PullDownCell.Initialize</c> is a public method taking options, a current value and a
-    /// callback.
-    ///
-    /// Two things have to be undone on the copy. Its name would collide with the original, which
-    /// is how the page identifies its own controls. And its label is driven by Unity Localization
-    /// through <c>TableLinkLocalizedText</c>, which rewrites the text on enable — so that
-    /// component is removed before the label is set, or the game would overwrite it.
+    /// The row is a copy of one the game already has rather than anything built here, so it
+    /// inherits the screen's layout and styling. The template is found by looking for a
+    /// <see cref="Slider"/> anywhere under the settings view — the volume rows — because the
+    /// objects are not reliably named: <c>GraphicSettings</c> looks its own controls up by name
+    /// only as a fallback, and in a built scene those fields are already wired, so the names in
+    /// the code are not necessarily the names in the hierarchy.
     /// </summary>
     [HarmonyPatch(typeof(GraphicSettings), "OnPageOpen")]
     internal static class SettingsRowPatch
     {
-        private const string SourceRow = "Resolution";
-        private const string OurRow = "LwfUiScale";
+        private const string OurRow = "LwfUiScaleRow";
         private const string RowLabel = "UI Scale";
+
+        private static bool _dumped;
 
         private static void Postfix(GraphicSettings __instance)
         {
-            var existing = FindChild(__instance, OurRow);
+            var page = __instance.gameObject;
+
+            var existing = FindByName(page.transform, OurRow);
             if (existing != null)
             {
-                // The page was reopened. The row survives with it; just resync the shown value.
                 Sync(existing);
                 return;
             }
 
-            var source = FindChild(__instance, SourceRow);
-            if (source == null)
+            // The whole settings screen, not just this page: the slider rows live on another
+            // tab, and the pages are siblings under one view.
+            var view = __instance.GetComponentInParent<SettingsView>(includeInactive: true);
+            var root = view != null ? view.transform : page.transform;
+
+            var template = FindSliderRow(root);
+            if (template == null)
             {
-                Plugin.Log.LogError($"UI scale: no '{SourceRow}' row to copy; no row added.");
+                Plugin.Log.LogError("UI scale: no slider row found to copy; no row added.");
+                Dump(root);
                 return;
             }
 
-            var row = Object.Instantiate(source, source.transform.parent);
+            Dump(root);
+            Build(template, page.transform);
+        }
+
+        /// <summary>
+        /// The row that owns a slider: the highest ancestor still containing exactly one, which
+        /// is the row rather than the list that holds every row.
+        /// </summary>
+        private static GameObject FindSliderRow(Transform root)
+        {
+            var slider = root.GetComponentsInChildren<Slider>(includeInactive: true).FirstOrDefault();
+            if (slider == null) return null;
+
+            var row = slider.transform;
+            while (row.parent != null
+                   && row.parent != root
+                   && row.parent.GetComponentsInChildren<Slider>(includeInactive: true).Length == 1)
+            {
+                row = row.parent;
+            }
+
+            return row.gameObject;
+        }
+
+        private static void Build(GameObject template, Transform parent)
+        {
+            var row = Object.Instantiate(template, parent);
             row.name = OurRow;
+            row.SetActive(true);
             row.transform.SetAsLastSibling();
 
             StripLocalisation(row);
-            SetLabel(row);
 
-            var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
-            if (cell == null)
+            var slider = row.GetComponentInChildren<Slider>(includeInactive: true);
+            if (slider == null)
             {
-                Plugin.Log.LogError("UI scale: the copied row has no PullDownCell; no row added.");
+                Plugin.Log.LogError("UI scale: the copied row lost its slider; no row added.");
                 Object.Destroy(row);
                 return;
             }
 
-            cell.Initialize(Options(), Plugin.Label(Plugin.Percent), OnChanged);
-            cell.SetInteractable(true);
+            // A copied row still carries the listeners of whatever it was cloned from, which
+            // would set the game's volume as this slider moves.
+            slider.onValueChanged.RemoveAllListeners();
 
-            Plugin.Log.LogInfo($"UI scale: row added, showing {Plugin.Label(Plugin.Percent)}.");
+            slider.wholeNumbers = true;
+            slider.minValue = Plugin.MinPercent;
+            slider.maxValue = Plugin.MaxPercent;
+            slider.SetValueWithoutNotify(Plugin.Percent);
+            slider.onValueChanged.AddListener(OnSliderChanged);
+
+            Label(row, slider);
+            Plugin.Log.LogInfo($"UI scale: row added at {Plugin.Percent}%.");
         }
 
-        private static IReadOnlyList<PullDownOptionData> Options()
+        private static void OnSliderChanged(float value)
         {
-            return Plugin.Steps
-                .Select(step => new PullDownOptionData(Plugin.Label(step), Plugin.Label(step)))
-                .ToArray();
-        }
-
-        private static void OnChanged(string value)
-        {
-            var wanted = Plugin.Steps.FirstOrDefault(step => Plugin.Label(step) == value);
-            if (wanted == 0) return;
-
-            Plugin.Set(wanted);
+            Plugin.Set(Mathf.RoundToInt(value));
+            RefreshValueText();
         }
 
         private static void Sync(GameObject row)
         {
-            var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
-            cell?.SetValue(Plugin.Label(Plugin.Percent));
+            var slider = row.GetComponentInChildren<Slider>(includeInactive: true);
+            slider?.SetValueWithoutNotify(Plugin.Percent);
+            RefreshValueText();
         }
 
         /// <summary>
-        /// Removes the components that would rewrite the label from the localisation table. The
-        /// copied row carries the Resolution row's key, so left alone it would say "Resolution".
+        /// Names the row and points its numeric readouts at this setting.
+        ///
+        /// The texts are told apart by position rather than by name: the label is the one
+        /// outside the slider's own subtree, and the readouts inside it are the value and the
+        /// two end markers.
         /// </summary>
+        private static void Label(GameObject row, Slider slider)
+        {
+            _row = row;
+            _valueText = null;
+
+            // Told apart by position, since the objects are not reliably named: the first text
+            // outside the slider's subtree is the row's name, and the next is where the copied
+            // row showed its value.
+            var outside = row.GetComponentsInChildren<TMP_Text>(includeInactive: true)
+                             .Where(t => !t.transform.IsChildOf(slider.transform))
+                             .ToArray();
+
+            if (outside.Length > 0) outside[0].SetText(RowLabel);
+            if (outside.Length > 1) _valueText = outside[1];
+
+            RefreshValueText();
+        }
+
+        private static GameObject _row;
+        private static TMP_Text _valueText;
+
+        /// <summary>Shows the current percentage on whichever readout the cloned row uses.</summary>
+        private static void RefreshValueText()
+        {
+            if (_valueText != null) _valueText.SetText($"{Plugin.Percent}%");
+        }
+
         private static void StripLocalisation(GameObject row)
         {
             foreach (var link in row.GetComponentsInChildren<TableLinkLocalizedText>(includeInactive: true))
@@ -101,42 +161,55 @@ namespace LwfUiScale
                 Object.Destroy(link);
             }
 
-            // The localisation package's own component, found by name so this plugin does not
-            // have to reference Unity.Localization to delete it.
             foreach (var behaviour in row.GetComponentsInChildren<MonoBehaviour>(includeInactive: true))
             {
-                if (behaviour == null) continue;
-                if (behaviour.GetType().Name == "LocalizeStringEvent") Object.Destroy(behaviour);
+                if (behaviour != null && behaviour.GetType().Name == "LocalizeStringEvent")
+                {
+                    Object.Destroy(behaviour);
+                }
             }
         }
 
-        /// <summary>
-        /// Writes the row's label. The label is the text outside the pull-down: the cell's own
-        /// text shows the selected value, so it is excluded by walking up from it.
-        /// </summary>
-        private static void SetLabel(GameObject row)
-        {
-            var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
-            var cellRoot = cell != null ? cell.transform : null;
-
-            foreach (var text in row.GetComponentsInChildren<TMP_Text>(includeInactive: true))
-            {
-                if (cellRoot != null && text.transform.IsChildOf(cellRoot)) continue;
-                text.SetText(RowLabel);
-                return;
-            }
-
-            Plugin.Log.LogWarning("UI scale: no label text found on the copied row.");
-        }
-
-        private static GameObject FindChild(Component root, string objectName)
+        private static GameObject FindByName(Transform root, string name)
         {
             foreach (var child in root.GetComponentsInChildren<Transform>(includeInactive: true))
             {
-                if (child.name == objectName) return child.gameObject;
+                if (child.name == name) return child.gameObject;
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Prints the settings hierarchy once, with the components that matter for finding a
+        /// row. Logged whether or not the copy worked: the objects are not named after the code
+        /// that uses them, so this is the only way to see what is actually there.
+        /// </summary>
+        private static void Dump(Transform root)
+        {
+            if (_dumped) return;
+            _dumped = true;
+
+            var sb = new StringBuilder("UI scale: settings hierarchy\n");
+            Walk(root, 0, sb);
+            Plugin.Log.LogInfo(sb.ToString());
+        }
+
+        private static void Walk(Transform t, int depth, StringBuilder sb)
+        {
+            if (depth > 6) return;
+
+            var parts = new List<string>();
+            if (t.GetComponent<Slider>() != null) parts.Add("Slider");
+            if (t.GetComponent<Toggle>() != null) parts.Add("Toggle");
+            if (t.GetComponent<PullDownCell>() != null) parts.Add("PullDownCell");
+            if (t.GetComponent<TMP_Text>() != null) parts.Add("Text");
+
+            sb.Append(' ', depth * 2).Append(t.name);
+            if (parts.Count > 0) sb.Append("  [").Append(string.Join(",", parts)).Append(']');
+            sb.Append('\n');
+
+            for (var i = 0; i < t.childCount; i++) Walk(t.GetChild(i), depth + 1, sb);
         }
     }
 }

@@ -15,28 +15,15 @@ namespace LwfUiScale
     {
         public const string PluginGuid = "dev.meow.lwfuiscale";
 
-        /// <summary>The offered steps, as percentages. Ordered, because the row is a list.</summary>
-        internal static readonly int[] Steps = { 75, 90, 100, 110, 125, 150, 175, 200 };
+        internal const int MinPercent = 15;
+        internal const int MaxPercent = 400;
 
         internal static ManualLogSource Log;
         private static ConfigEntry<int> _percent;
 
-        /// <summary>Clamped to the offered steps rather than trusted: the config is a text file
-        /// and the row can only ever produce one of these.</summary>
-        internal static int Percent
-        {
-            get
-            {
-                var wanted = _percent.Value;
-                var best = Steps[0];
-                foreach (var step in Steps)
-                {
-                    if (Mathf.Abs(step - wanted) < Mathf.Abs(best - wanted)) best = step;
-                }
-
-                return best;
-            }
-        }
+        /// <summary>Clamped rather than trusted: the config is a text file anyone can edit, and
+        /// a zero or negative value would collapse every canvas.</summary>
+        internal static int Percent => Mathf.Clamp(_percent.Value, MinPercent, MaxPercent);
 
         internal static float Scale => Percent / 100f;
 
@@ -47,7 +34,8 @@ namespace LwfUiScale
         {
             Log = Logger;
             _percent = Config.Bind("UI", "Scale", 100,
-                "Percentage. Set it from Settings > Graphic; this is where the result is kept.");
+                $"Percentage, {MinPercent} to {MaxPercent}. Set it from Settings > Graphic; this "
+                + "is where the result is kept.");
 
             new Harmony(PluginGuid).PatchAll();
             gameObject.AddComponent<ScaleKeeper>();
@@ -58,7 +46,7 @@ namespace LwfUiScale
         /// <summary>Stores a new percentage and applies it immediately.</summary>
         internal static void Set(int percent)
         {
-            _percent.Value = percent;
+            _percent.Value = Mathf.Clamp(percent, MinPercent, MaxPercent);
             var touched = UiScale.ApplyAll(Scale);
             Log.LogInfo($"UI scale set to {Percent}%, applied to {touched} canvas scaler(s).");
         }
