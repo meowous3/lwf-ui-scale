@@ -401,11 +401,15 @@ namespace LwfUiScale
 
             if (previous == null) return;
 
-            var declaredBottom = Bottom(previous);
+            // Measured in the container's own space. GetWorldCorners answers in screen pixels,
+            // and a sizeDelta is in canvas units — on a 4K display those differ by the canvas
+            // scale, so a spacer sized from the raw figure was about twice what was needed, and
+            // changed size with the UI scale setting.
+            var declaredBottom = Bottom(previous, parent);
             var actualBottom = declaredBottom;
             foreach (var child in previous.GetComponentsInChildren<RectTransform>(includeInactive: false))
             {
-                actualBottom = Mathf.Min(actualBottom, Bottom(child));
+                actualBottom = Mathf.Min(actualBottom, Bottom(child, parent));
             }
 
             var overflow = declaredBottom - actualBottom;
@@ -430,12 +434,20 @@ namespace LwfUiScale
             rect.sizeDelta = new Vector2(0f, needed);
         }
 
-        /// <summary>The lowest edge of a rect, in the world units the layout is measured in.</summary>
-        private static float Bottom(RectTransform rect)
+        /// <summary>The lowest edge of a rect, in <paramref name="space"/>'s local units — the
+        /// same units a sizeDelta is written in.</summary>
+        private static float Bottom(RectTransform rect, Transform space)
         {
             var corners = new Vector3[4];
             rect.GetWorldCorners(corners);
-            return Mathf.Min(corners[0].y, corners[3].y);
+
+            var lowest = float.MaxValue;
+            foreach (var corner in corners)
+            {
+                lowest = Mathf.Min(lowest, space.InverseTransformPoint(corner).y);
+            }
+
+            return lowest;
         }
 
         private static GameObject FindByName(Transform root, string name)
