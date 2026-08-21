@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      Point this at your game folder - the one containing the .exe.
+      This is the only line most people need to change.
+
+      Deliberately unconditional: the default path contains an apostrophe, and
+      MSBuild delimits Condition strings with single quotes, so any condition
+      referencing this property fails to parse. Edit the value directly.
+
+      Windows example:
+        <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Lazy Witch's Factory</GameDir>
+    -->
+    <GameDir>$(HOME)/.local/share/Steam/steamapps/common/Lazy Witch's Factory</GameDir>
+
+    <!--
+      Located rather than named: the data folder is LazyWitchsFactory_Data in the
+      full release and LazyWitchFactory_Data in the demo, so building against
+      either would otherwise need this file edited twice.
+    -->
+    <GameDataDir>$([System.IO.Directory]::GetDirectories($(GameDir), '*_Data'))</GameDataDir>
+
+    <GameManagedDir>$(GameDataDir)/Managed</GameManagedDir>
+    <BepInExCoreDir>$(GameDir)/BepInEx/core</BepInExCoreDir>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>
