@@ -29,8 +29,6 @@ namespace LwfUiScale
         /// <summary>Height of the line the percentage sits on, under the slider.</summary>
         private const float ValueLineHeight = 50f;
 
-        private static bool _dumped;
-
         private static void Postfix(GraphicSettings __instance)
         {
             var page = __instance.gameObject;
@@ -50,8 +48,6 @@ namespace LwfUiScale
             // The control comes from the Sound tab, the shape from this page.
             var sliderSource = FindSlider(root);
             var group = FindGroup(page.transform);
-
-            Dump(root);
 
             if (sliderSource == null)
             {
@@ -186,7 +182,6 @@ namespace LwfUiScale
 
             FitRowHeight(row);
             PadForOverflow(row);
-            Report(row, group);
         }
 
 
@@ -281,53 +276,6 @@ namespace LwfUiScale
             }
         }
 
-        /// <summary>
-        /// Prints what decides this row's position: the container's layout settings, and every
-        /// sibling's measurements beside our own.
-        ///
-        /// Three attempts to place the row by hand all failed, each on a guess about what was
-        /// arranging it. This prints the inputs instead.
-        /// </summary>
-        private static void Report(GameObject row, GameObject group)
-        {
-            var parent = row.transform.parent;
-            var parentRect = parent as RectTransform;
-
-            Plugin.Log.LogInfo($"layout| container '{parent.name}' rect "
-                               + $"{parentRect?.rect.width:0.#}x{parentRect?.rect.height:0.#}");
-
-            foreach (var component in parent.GetComponents<Component>())
-            {
-                Plugin.Log.LogInfo($"layout|   component {component.GetType().Name}");
-            }
-
-            if (parent.GetComponent<VerticalLayoutGroup>() is VerticalLayoutGroup v)
-            {
-                Plugin.Log.LogInfo($"layout|   vertical spacing={v.spacing} padding={v.padding.top}/{v.padding.bottom} "
-                                   + $"controlH={v.childControlHeight} forceH={v.childForceExpandHeight} "
-                                   + $"controlW={v.childControlWidth} forceW={v.childForceExpandWidth} "
-                                   + $"align={v.childAlignment}");
-            }
-
-            if (parent.GetComponent<ContentSizeFitter>() is ContentSizeFitter f)
-            {
-                Plugin.Log.LogInfo($"layout|   fitter v={f.verticalFit} h={f.horizontalFit}");
-            }
-
-            foreach (Transform child in parent)
-            {
-                var rect = child as RectTransform;
-                var element = child.GetComponent<LayoutElement>();
-                var mark = child == row.transform ? " <-- ours" : (child == group.transform ? " <-- source" : "");
-
-                Plugin.Log.LogInfo(
-                    $"layout|   child '{child.name}' active={child.gameObject.activeSelf} "
-                    + $"pos={rect?.anchoredPosition} size={rect?.rect.width:0.#}x{rect?.rect.height:0.#} "
-                    + $"anchors={rect?.anchorMin}-{rect?.anchorMax} "
-                    + $"element={(element == null ? "none" : $"min{element.minHeight}/pref{element.preferredHeight}/flex{element.flexibleHeight}/ignore{element.ignoreLayout}")}"
-                    + mark);
-            }
-        }
 
         /// <summary>
         /// Grows the row to hold its own contents.
@@ -366,8 +314,8 @@ namespace LwfUiScale
             var before = rect.sizeDelta.y;
             rect.sizeDelta = new Vector2(rect.sizeDelta.x, total);
 
-            Plugin.Log.LogInfo($"UI scale: row height {before} -> {total} for {count} children"
-                               + (group != null ? $" (spacing {group.spacing})" : " (no layout group)"));
+            if (Mathf.Approximately(before, total)) return;
+            Plugin.Log.LogInfo($"UI scale: row sized {total:0.#} for {count} children.");
         }
 
         /// <summary>
@@ -413,15 +361,10 @@ namespace LwfUiScale
             }
 
             var overflow = declaredBottom - actualBottom;
-            Plugin.Log.LogInfo($"layout| '{previous.name}' declares bottom {declaredBottom:0.#}, "
-                               + $"draws to {actualBottom:0.#} (overflow {overflow:0.#})");
-
             // Set rather than derived. The measurement above is right about why the gap is
             // needed, but the overflow is centred in its box and only part of it lands where it
             // matters, so the figure that reads correctly is not the figure that is measured.
             const float needed = 70f;
-
-            Plugin.Log.LogInfo($"layout| overflow {overflow:0.#}, spacer {needed}");
 
             var spacer = new GameObject("LwfUiScaleSpacer", typeof(RectTransform));
             var rect = spacer.GetComponent<RectTransform>();
@@ -456,42 +399,6 @@ namespace LwfUiScale
             return null;
         }
 
-        /// <summary>
-        /// Prints the settings hierarchy once, with the components that matter for finding a
-        /// row. Logged whether or not the copy worked: the objects are not named after the code
-        /// that uses them, so this is the only way to see what is actually there.
-        /// </summary>
-        private static void Dump(Transform root)
-        {
-            if (_dumped) return;
-            _dumped = true;
 
-            var sb = new StringBuilder();
-            Walk(root, 0, sb);
-
-            // One line per entry rather than one long message: a single multi-line log line gets
-            // truncated by the console this is read through, which lost the part that mattered.
-            foreach (var line in sb.ToString().Split('\n'))
-            {
-                if (line.Length > 0) Plugin.Log.LogInfo("hierarchy| " + line);
-            }
-        }
-
-        private static void Walk(Transform t, int depth, StringBuilder sb)
-        {
-            if (depth > 8) return;
-
-            var parts = new List<string>();
-            if (t.GetComponent<Slider>() != null) parts.Add("Slider");
-            if (t.GetComponent<Toggle>() != null) parts.Add("Toggle");
-            if (t.GetComponent<PullDownCell>() != null) parts.Add("PullDownCell");
-            if (t.GetComponent<TMP_Text>() != null) parts.Add("Text");
-
-            sb.Append(' ', depth * 2).Append(t.name);
-            if (parts.Count > 0) sb.Append("  [").Append(string.Join(",", parts)).Append(']');
-            sb.Append('\n');
-
-            for (var i = 0; i < t.childCount; i++) Walk(t.GetChild(i), depth + 1, sb);
-        }
     }
 }
