@@ -26,6 +26,9 @@ namespace LwfUiScale
         private const string OurRow = "LwfUiScaleRow";
         private const string RowLabel = "UI Scale";
 
+        /// <summary>Height of the line the percentage sits on, under the slider.</summary>
+        private const float ValueLineHeight = 50f;
+
         private static bool _dumped;
 
         private static void Postfix(GraphicSettings __instance)
@@ -181,6 +184,7 @@ namespace LwfUiScale
 
             Label(row, sliderObject);
 
+            FitRowHeight(row);
             PadForOverflow(row);
             Report(row, group);
         }
@@ -202,16 +206,14 @@ namespace LwfUiScale
 
             if (header != null)
             {
-                // A child of the slider, not a sibling of it.
+                // Its own line under the slider, not a label on top of it.
                 //
-                // The container's VerticalLayoutGroup has childControlHeight off, so it spaces
-                // rows by their own rect height and nothing else — a row is free to overflow its
-                // box, and the layout will not notice. ScreenMode holds a header and one bar in
-                // 150 units; adding a third child made this row's contents taller than the box it
-                // is still measured by, and the excess drew over the setting above. Inside the
-                // slider, the number costs the row no height at all.
-                var copy = Object.Instantiate(header.gameObject, sliderObject.transform);
+                // The bar has three regions — tan fill, dark handle, light track — so no text
+                // colour reads across all of them, and the handle passes over the middle where a
+                // centred number sits. There is no colour to pick; the number has to leave the bar.
+                var copy = Object.Instantiate(header.gameObject, sliderObject.transform.parent);
                 copy.name = "LwfUiScaleValue";
+                copy.transform.SetSiblingIndex(sliderObject.transform.GetSiblingIndex() + 1);
 
                 // The header is a bar, not bare text: cloning it brought its background along,
                 // which drew as a second slider-shaped strip. Only the glyphs are wanted.
@@ -224,18 +226,16 @@ namespace LwfUiScale
                              ?? copy.GetComponentInChildren<TMP_Text>(includeInactive: true);
                 _valueText.alignment = TextAlignmentOptions.Center;
                 _valueText.textWrappingMode = TextWrappingModes.NoWrap;
-                if (_valueColor.HasValue) _valueText.color = _valueColor.Value;
 
-                // Filling the slider, so the number reads as centred on the bar.
+                // The slider's own footprint, one line down, so it lines up under the bar.
+                var sliderRect = sliderObject.GetComponent<RectTransform>();
                 var rect = copy.GetComponent<RectTransform>();
-                rect.anchorMin = Vector2.zero;
-                rect.anchorMax = Vector2.one;
-                rect.pivot = new Vector2(0.5f, 0.5f);
-                rect.offsetMin = Vector2.zero;
-                rect.offsetMax = Vector2.zero;
+                rect.anchorMin = sliderRect.anchorMin;
+                rect.anchorMax = sliderRect.anchorMax;
+                rect.pivot = sliderRect.pivot;
                 rect.anchoredPosition = Vector2.zero;
+                rect.sizeDelta = new Vector2(sliderRect.sizeDelta.x, ValueLineHeight);
                 rect.localScale = Vector3.one;
-                rect.SetAsLastSibling();
             }
 
             RefreshValueText();
@@ -330,6 +330,47 @@ namespace LwfUiScale
         }
 
         /// <summary>
+        /// Grows the row to hold its own contents.
+        ///
+        /// ScreenMode declares 150 for a 77 header and a 60 bar. This row adds a third line for
+        /// the percentage, so 150 no longer covers it — and the container measures rows by
+        /// declared height alone, so the excess would spill onto whatever follows. Exactly the
+        /// mistake FrameRateControll makes, which is worth not repeating.
+        ///
+        /// The height is summed from the children and the row's own layout settings rather than
+        /// picked, so it stays right if any of those change.
+        /// </summary>
+        private static void FitRowHeight(GameObject row)
+        {
+            var rect = row.GetComponent<RectTransform>();
+            if (rect == null) return;
+
+            var total = 0f;
+            var count = 0;
+            foreach (Transform child in row.transform)
+            {
+                if (!child.gameObject.activeSelf) continue;
+                var childRect = child as RectTransform;
+                if (childRect == null) continue;
+                total += childRect.sizeDelta.y;
+                count++;
+            }
+
+            var group = row.GetComponent<VerticalLayoutGroup>();
+            if (group != null)
+            {
+                total += group.spacing * Mathf.Max(0, count - 1);
+                total += group.padding.top + group.padding.bottom;
+            }
+
+            var before = rect.sizeDelta.y;
+            rect.sizeDelta = new Vector2(rect.sizeDelta.x, total);
+
+            Plugin.Log.LogInfo($"UI scale: row height {before} -> {total} for {count} children"
+                               + (group != null ? $" (spacing {group.spacing})" : " (no layout group)"));
+        }
+
+        /// <summary>
         /// Adds a spacer when the setting above draws outside its own box.
         ///
         /// FrameRateControll declares 200 units and stacks a toggle, a label and a pull-down
@@ -371,13 +412,22 @@ namespace LwfUiScale
             Plugin.Log.LogInfo($"layout| '{previous.name}' declares bottom {declaredBottom:0.#}, "
                                + $"draws to {actualBottom:0.#} (overflow {overflow:0.#})");
 
-            if (overflow <= 1f) return;
+            // The container already puts its own spacing between rows, so only the part of the
+            // overflow that eats into that gap needs making up. Padding by the whole of it
+            // double-counts and leaves the row sitting low.
+            var group = parent.GetComponent<VerticalLayoutGroup>();
+            var already = group != null ? group.spacing : 0f;
+            var needed = overflow - already;
+
+            Plugin.Log.LogInfo($"layout| container already spaces {already}, adding {needed:0.#}");
+
+            if (needed <= 1f) return;
 
             var spacer = new GameObject("LwfUiScaleSpacer", typeof(RectTransform));
             var rect = spacer.GetComponent<RectTransform>();
             rect.SetParent(parent, worldPositionStays: false);
             rect.SetSiblingIndex(index);
-            rect.sizeDelta = new Vector2(0f, overflow);
+            rect.sizeDelta = new Vector2(0f, needed);
         }
 
         /// <summary>The lowest edge of a rect, in the world units the layout is measured in.</summary>
