@@ -138,6 +138,11 @@ namespace LwfUiScale
             var anchored = cellRect.anchoredPosition;
             var size = cellRect.sizeDelta;
 
+            // The pull-down's own label is dark text on the same tan bar, which is exactly the
+            // problem the percentage has. Taking its colour is more reliable than picking one.
+            var cellText = cell.GetComponentInChildren<TMP_Text>(includeInactive: true);
+            _valueColor = cellText != null ? cellText.color : (Color?)null;
+
             Object.DestroyImmediate(cell.gameObject);
 
             var sliderObject = Object.Instantiate(sliderSource, holder);
@@ -176,6 +181,7 @@ namespace LwfUiScale
 
             Label(row, sliderObject);
 
+            PadForOverflow(row);
             Report(row, group);
         }
 
@@ -218,6 +224,7 @@ namespace LwfUiScale
                              ?? copy.GetComponentInChildren<TMP_Text>(includeInactive: true);
                 _valueText.alignment = TextAlignmentOptions.Center;
                 _valueText.textWrappingMode = TextWrappingModes.NoWrap;
+                if (_valueColor.HasValue) _valueText.color = _valueColor.Value;
 
                 // Filling the slider, so the number reads as centred on the bar.
                 var rect = copy.GetComponent<RectTransform>();
@@ -248,6 +255,7 @@ namespace LwfUiScale
 
 
         private static GameObject _row;
+        private static Color? _valueColor;
         private static TMP_Text _valueText;
 
 
@@ -319,6 +327,65 @@ namespace LwfUiScale
                     + $"element={(element == null ? "none" : $"min{element.minHeight}/pref{element.preferredHeight}/flex{element.flexibleHeight}/ignore{element.ignoreLayout}")}"
                     + mark);
             }
+        }
+
+        /// <summary>
+        /// Adds a spacer when the setting above draws outside its own box.
+        ///
+        /// FrameRateControll declares 200 units and stacks a toggle, a label and a pull-down
+        /// inside it; the pull-down hangs below that. Nothing followed it before, so the overflow
+        /// never showed. The container spaces rows by declared height alone — childControlHeight
+        /// is off — so it cannot see the difference, and no amount of positioning this row avoids
+        /// being drawn over.
+        ///
+        /// The gap is measured rather than chosen: the lowest pixel any descendant of the
+        /// previous row actually occupies, against where that row claims to end.
+        /// </summary>
+        private static void PadForOverflow(GameObject row)
+        {
+            var parent = row.transform.parent as RectTransform;
+            if (parent == null) return;
+
+            var index = row.transform.GetSiblingIndex();
+            RectTransform previous = null;
+            for (var i = index - 1; i >= 0; i--)
+            {
+                var candidate = parent.GetChild(i) as RectTransform;
+                if (candidate != null && candidate.gameObject.activeInHierarchy)
+                {
+                    previous = candidate;
+                    break;
+                }
+            }
+
+            if (previous == null) return;
+
+            var declaredBottom = Bottom(previous);
+            var actualBottom = declaredBottom;
+            foreach (var child in previous.GetComponentsInChildren<RectTransform>(includeInactive: false))
+            {
+                actualBottom = Mathf.Min(actualBottom, Bottom(child));
+            }
+
+            var overflow = declaredBottom - actualBottom;
+            Plugin.Log.LogInfo($"layout| '{previous.name}' declares bottom {declaredBottom:0.#}, "
+                               + $"draws to {actualBottom:0.#} (overflow {overflow:0.#})");
+
+            if (overflow <= 1f) return;
+
+            var spacer = new GameObject("LwfUiScaleSpacer", typeof(RectTransform));
+            var rect = spacer.GetComponent<RectTransform>();
+            rect.SetParent(parent, worldPositionStays: false);
+            rect.SetSiblingIndex(index);
+            rect.sizeDelta = new Vector2(0f, overflow);
+        }
+
+        /// <summary>The lowest edge of a rect, in the world units the layout is measured in.</summary>
+        private static float Bottom(RectTransform rect)
+        {
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return Mathf.Min(corners[0].y, corners[3].y);
         }
 
         private static GameObject FindByName(Transform root, string name)
