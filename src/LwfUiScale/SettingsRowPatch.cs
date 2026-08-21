@@ -44,171 +44,180 @@ namespace LwfUiScale
             var view = __instance.GetComponentInParent<SettingsView>(includeInactive: true);
             var root = view != null ? view.transform : page.transform;
 
-            var template = FindSliderRow(root);
-            if (template == null)
-            {
-                Plugin.Log.LogError("UI scale: no slider row found to copy; no row added.");
-                Dump(root);
-                return;
-            }
+            // The control comes from the Sound tab, the shape from this page.
+            var sliderSource = FindSlider(root);
+            var group = FindGroup(page.transform);
 
             Dump(root);
 
-            var reference = FindPullDownRow(page.transform);
-            if (reference == null)
+            if (sliderSource == null)
             {
-                Plugin.Log.LogError("UI scale: no existing row on the page to sit beside; no row added.");
+                Plugin.Log.LogError("UI scale: no slider anywhere in settings to copy; no row added.");
                 return;
             }
 
-            Build(template, reference);
-        }
-
-        /// <summary>
-        /// Where this page keeps its rows: the parent of one of them.
-        ///
-        /// Not the page object itself. The rows sit several levels down, inside the page's
-        /// scroll view, under a layout group that positions them — parenting to the page root
-        /// put the row outside the panel entirely, at the top-left of the screen.
-        /// </summary>
-        private static GameObject FindPullDownRow(Transform page)
-        {
-            var cell = page.GetComponentsInChildren<PullDownCell>(includeInactive: true).FirstOrDefault();
-            if (cell == null) return null;
-
-            // Same walk as the slider row: up to the highest ancestor still holding exactly one
-            // pull-down, which is a row.
-            var row = cell.transform;
-            while (row.parent != null
-                   && row.parent != page
-                   && row.parent.GetComponentsInChildren<PullDownCell>(includeInactive: true).Length == 1)
+            if (group == null)
             {
-                row = row.parent;
+                Plugin.Log.LogError("UI scale: no setting group on this page to copy; no row added.");
+                return;
             }
 
-            return row.gameObject;
+            Build(sliderSource, group);
         }
+
 
         /// <summary>
         /// The row that owns a slider: the highest ancestor still containing exactly one, which
         /// is the row rather than the list that holds every row.
         /// </summary>
-        private static GameObject FindSliderRow(Transform root)
+        /// <summary>The slider itself, not its row — only the control is wanted.</summary>
+        private static GameObject FindSlider(Transform root)
         {
-            var slider = root.GetComponentsInChildren<Slider>(includeInactive: true).FirstOrDefault();
-            if (slider == null) return null;
-
-            var row = slider.transform;
-            while (row.parent != null
-                   && row.parent != root
-                   && row.parent.GetComponentsInChildren<Slider>(includeInactive: true).Length == 1)
-            {
-                row = row.parent;
-            }
-
-            return row.gameObject;
+            // Scrollbars are Sliders too, and every scroll view has one; a settings slider is
+            // distinguished by not being part of one.
+            var slider = root.GetComponentsInChildren<Slider>(includeInactive: true)
+                             .FirstOrDefault(s => s.GetComponentInParent<ScrollRect>() == null);
+            return slider != null ? slider.gameObject : null;
         }
 
-        private static void Build(GameObject template, GameObject reference)
+        /// <summary>A setting group on this page: the child of the scroll content that holds a
+        /// pull-down, which is a header bar and a control bar laid out the page's way.</summary>
+        private static GameObject FindGroup(Transform page)
         {
-            var row = Object.Instantiate(template, reference.transform.parent);
+            var cell = page.GetComponentsInChildren<PullDownCell>(includeInactive: true).FirstOrDefault();
+            if (cell == null) return null;
+
+            var group = cell.transform;
+            while (group.parent != null
+                   && group.parent != page
+                   && group.parent.GetComponentsInChildren<PullDownCell>(includeInactive: true).Length == 1)
+            {
+                group = group.parent;
+            }
+
+            return group.gameObject;
+        }
+
+        /// <summary>
+        /// Builds the row by cloning a whole setting group and swapping its pull-down for a
+        /// slider.
+        ///
+        /// The page's rows are groups — ScreenMode, UsingDisplay, AspectRatio — each a header
+        /// bar above a control bar, and each 3415 units wide with its visible bars as narrow
+        /// centred children. Copying only the outer size and stretching a slider across it
+        /// produced a bar the width of the screen. Cloning the group keeps every one of those
+        /// proportions, so the only thing that has to be positioned is the slider, and it
+        /// inherits the exact rect the pull-down had.
+        /// </summary>
+        private static void Build(GameObject sliderSource, GameObject group)
+        {
+            var row = Object.Instantiate(group, group.transform.parent);
             row.name = OurRow;
             row.SetActive(true);
             row.transform.SetAsLastSibling();
 
             StripLocalisation(row);
-            MatchGeometry(row, reference);
 
-            var slider = row.GetComponentInChildren<Slider>(includeInactive: true);
-            if (slider == null)
+            var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
+            if (cell == null)
             {
-                Plugin.Log.LogError("UI scale: the copied row lost its slider; no row added.");
+                Plugin.Log.LogError("UI scale: the cloned group has no pull-down to replace.");
                 Object.Destroy(row);
                 return;
             }
 
-            // A copied row still carries the listeners of whatever it was cloned from, which
-            // would set the game's volume as this slider moves.
-            slider.onValueChanged.RemoveAllListeners();
+            // The pull-down's own footprint, which the slider takes over.
+            var cellRect = cell.GetComponent<RectTransform>();
+            var holder = cellRect.parent;
+            var index = cellRect.GetSiblingIndex();
+            var anchorMin = cellRect.anchorMin;
+            var anchorMax = cellRect.anchorMax;
+            var pivot = cellRect.pivot;
+            var offsetMin = cellRect.offsetMin;
+            var offsetMax = cellRect.offsetMax;
+            var anchored = cellRect.anchoredPosition;
+            var size = cellRect.sizeDelta;
 
+            Object.DestroyImmediate(cell.gameObject);
+
+            var sliderObject = Object.Instantiate(sliderSource, holder);
+            sliderObject.name = "LwfUiScaleSlider";
+            sliderObject.SetActive(true);
+            sliderObject.transform.SetSiblingIndex(index);
+
+            var sliderRect = sliderObject.GetComponent<RectTransform>();
+            sliderRect.anchorMin = anchorMin;
+            sliderRect.anchorMax = anchorMax;
+            sliderRect.pivot = pivot;
+            sliderRect.anchoredPosition = anchored;
+            sliderRect.sizeDelta = size;
+            sliderRect.offsetMin = offsetMin;
+            sliderRect.offsetMax = offsetMax;
+            sliderRect.localScale = Vector3.one;
+
+            var slider = sliderObject.GetComponent<Slider>()
+                         ?? sliderObject.GetComponentInChildren<Slider>(includeInactive: true);
+            if (slider == null)
+            {
+                Plugin.Log.LogError("UI scale: the copied slider has no Slider component.");
+                Object.Destroy(row);
+                return;
+            }
+
+            // A copy still carries the listeners of whatever it came from, which would set the
+            // game's volume as this slider moves.
+            slider.onValueChanged.RemoveAllListeners();
             slider.wholeNumbers = true;
             slider.minValue = Plugin.MinPercent;
             slider.maxValue = Plugin.MaxPercent;
             slider.SetValueWithoutNotify(Plugin.Percent);
-            FitSlider(row, slider);
             slider.onValueChanged.AddListener(OnSliderMoved);
             if (slider.GetComponent<SliderCommit>() == null) slider.gameObject.AddComponent<SliderCommit>();
 
-            Label(row, slider);
-            Plugin.Log.LogInfo($"UI scale: row added at {Plugin.Percent}%.");
-        }
+            Label(row, sliderObject);
 
-        /// <summary>Moves the readout only. The scale itself is applied by
-        /// <see cref="SliderCommit"/> when the drag ends.</summary>
-        /// <summary>
-        /// Makes the copied row the size and shape of a row already on this page.
-        ///
-        /// The template comes from the Sound tab, which lays its rows out differently — left
-        /// unchanged it was wider than the panel and the list did not reserve any height for it,
-        /// so it drew over the row above. Copying the reference row's RectTransform and its
-        /// LayoutElement hands both decisions back to the page's own layout.
-        /// </summary>
-        private static void MatchGeometry(GameObject row, GameObject reference)
-        {
-            var target = row.GetComponent<RectTransform>();
-            var source = reference.GetComponent<RectTransform>();
-            if (target == null || source == null) return;
-
-            target.anchorMin = source.anchorMin;
-            target.anchorMax = source.anchorMax;
-            target.pivot = source.pivot;
-            target.sizeDelta = source.sizeDelta;
-            target.localScale = source.localScale;
-
-            var from = reference.GetComponent<LayoutElement>();
-            if (from != null)
-            {
-                var to = row.GetComponent<LayoutElement>() ?? row.AddComponent<LayoutElement>();
-                to.minWidth = from.minWidth;
-                to.minHeight = from.minHeight;
-                to.preferredWidth = from.preferredWidth;
-                to.preferredHeight = from.preferredHeight;
-                to.flexibleWidth = from.flexibleWidth;
-                to.flexibleHeight = from.flexibleHeight;
-                to.ignoreLayout = from.ignoreLayout;
-            }
-            else
-            {
-                // No LayoutElement to copy: reserve the reference row's actual height so the
-                // list still leaves room for this one.
-                var to = row.GetComponent<LayoutElement>() ?? row.AddComponent<LayoutElement>();
-                to.preferredHeight = source.rect.height;
-                to.preferredWidth = source.rect.width;
-            }
-
-            Plugin.Log.LogInfo($"UI scale: row sized {target.sizeDelta} from '{reference.name}' "
-                               + $"(rect {source.rect.width}x{source.rect.height}).");
+            Plugin.Log.LogInfo($"UI scale: row built from '{group.name}' at {Plugin.Percent}%, "
+                               + $"slider rect {sliderRect.rect.width}x{sliderRect.rect.height}.");
         }
 
         /// <summary>
-        /// Stretches the slider across the row instead of keeping the width it had on the Sound
-        /// tab, which overran the panel. Anchored rather than sized, so it follows the row at any
-        /// resolution — and inset on the left to leave the label its space.
+        /// Sets the group's header to name this setting, and puts the percentage at the right of
+        /// the slider's bar.
         /// </summary>
-        private static void FitSlider(GameObject row, Slider slider)
+        private static void Label(GameObject row, GameObject sliderObject)
         {
-            var rect = slider.GetComponent<RectTransform>();
-            if (rect == null || rect.parent == row.transform.parent) return;
+            _row = row;
+            _valueText = null;
 
-            const float labelWidth = 0.42f;   // of the row, matching where the label sits
-            const float valueWidth = 0.14f;   // reserved on the right for the percentage
-            const float rightPad = 8f;
+            var header = row.GetComponentsInChildren<TMP_Text>(includeInactive: true)
+                            .FirstOrDefault(t => !t.transform.IsChildOf(sliderObject.transform));
+            header?.SetText(RowLabel);
 
-            rect.anchorMin = new Vector2(labelWidth, 0f);
-            rect.anchorMax = new Vector2(1f - valueWidth, 1f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.offsetMin = new Vector2(0f, 12f);
-            rect.offsetMax = new Vector2(-rightPad, -12f);
+            if (header != null)
+            {
+                var copy = Object.Instantiate(header.gameObject, sliderObject.transform.parent);
+                copy.name = "LwfUiScaleValue";
+                copy.transform.SetSiblingIndex(sliderObject.transform.GetSiblingIndex() + 1);
+
+                _valueText = copy.GetComponent<TMP_Text>();
+                _valueText.alignment = TextAlignmentOptions.Right;
+                _valueText.textWrappingMode = TextWrappingModes.NoWrap;
+
+                // Over the right end of the slider's bar, so the number sits with the control
+                // rather than floating in the row's empty margins.
+                var sliderRect = sliderObject.GetComponent<RectTransform>();
+                var rect = copy.GetComponent<RectTransform>();
+                rect.anchorMin = sliderRect.anchorMin;
+                rect.anchorMax = sliderRect.anchorMax;
+                rect.pivot = sliderRect.pivot;
+                rect.anchoredPosition = sliderRect.anchoredPosition;
+                rect.sizeDelta = sliderRect.sizeDelta;
+                rect.offsetMin = sliderRect.offsetMin;
+                rect.offsetMax = sliderRect.offsetMax;
+                rect.localScale = Vector3.one;
+            }
+
+            RefreshValueText();
         }
 
         private static void OnSliderMoved(float value)
@@ -223,61 +232,10 @@ namespace LwfUiScale
             RefreshValueText();
         }
 
-        /// <summary>
-        /// Names the row and points its numeric readouts at this setting.
-        ///
-        /// The texts are told apart by position rather than by name: the label is the one
-        /// outside the slider's own subtree, and the readouts inside it are the value and the
-        /// two end markers.
-        /// </summary>
-        private static void Label(GameObject row, Slider slider)
-        {
-            _row = row;
-            _valueText = null;
-
-            // Told apart by position, since the objects are not reliably named: the first text
-            // outside the slider's subtree is the row's name, and the next is where the copied
-            // row showed its value.
-            var outside = row.GetComponentsInChildren<TMP_Text>(includeInactive: true)
-                             .Where(t => !t.transform.IsChildOf(slider.transform))
-                             .ToArray();
-
-            if (outside.Length > 0) outside[0].SetText(RowLabel);
-            _valueText = outside.Length > 1 ? outside[1] : MakeValueText(row, outside.FirstOrDefault());
-
-            RefreshValueText();
-        }
 
         private static GameObject _row;
         private static TMP_Text _valueText;
 
-        /// <summary>
-        /// Adds a readout when the copied row has none.
-        ///
-        /// The volume rows carry only their label, so there was nowhere for the percentage to go
-        /// and the slider stood alone with no number. Copying the label rather than building a
-        /// text from scratch keeps the font, size and colour the screen already uses.
-        /// </summary>
-        private static TMP_Text MakeValueText(GameObject row, TMP_Text label)
-        {
-            if (label == null) return null;
-
-            var copy = Object.Instantiate(label.gameObject, row.transform);
-            copy.name = "LwfUiScaleValue";
-
-            var text = copy.GetComponent<TMP_Text>();
-            text.alignment = TextAlignmentOptions.Right;
-            text.enableWordWrapping = false;
-
-            var rect = copy.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.86f, 0f);
-            rect.anchorMax = new Vector2(1f, 1f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.offsetMin = new Vector2(0f, 0f);
-            rect.offsetMax = new Vector2(-8f, 0f);
-
-            return text;
-        }
 
         /// <summary>Shows the current percentage on whichever readout the cloned row uses.</summary>
         private static void RefreshValueText()
