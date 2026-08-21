@@ -16,7 +16,7 @@ namespace LwfUiScale
         public const string PluginGuid = "dev.meow.lwfuiscale";
 
         internal const int MinPercent = 15;
-        internal const int MaxPercent = 400;
+        internal const int MaxPercent = 200;
 
         internal static ManualLogSource Log;
         private static ConfigEntry<int> _percent;

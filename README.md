@@ -1,7 +1,7 @@
 # LWF UI Scale
 
 BepInEx plugin for **Lazy Witch's Factory**. Adds a **UI Scale** row to Settings → Graphic:
-15% to 400%, applied as you drag it.
+15% to 200%, applied when you let go of the slider.
 
 Built against `0.21.0` (Steam app 3971650).
 
@@ -21,7 +21,7 @@ Built against `0.21.0` (Steam app 3971650).
 
 | Key | Default | |
 |---|---|---|
-| `Scale` | `100` | Percentage, 15 to 400. Set it from the settings row |
+| `Scale` | `100` | Percentage, 15 to 200. Set it from the settings row |
 
 ## Build
 
