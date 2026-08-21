@@ -117,6 +117,7 @@ namespace LwfUiScale
             row.transform.SetAsLastSibling();
 
             StripLocalisation(row);
+            PlaceBelowLast(row, group);
 
             var cell = row.GetComponentInChildren<PullDownCell>(includeInactive: true);
             if (cell == null)
@@ -181,8 +182,46 @@ namespace LwfUiScale
         }
 
         /// <summary>
-        /// Sets the group's header to name this setting, and puts the percentage at the right of
-        /// the slider's bar.
+        /// Puts the group under the last one when the container positions its children itself.
+        ///
+        /// A clone lands on top of whatever it was copied from if nothing lays it out, which is
+        /// why the row overlapped the setting above it. Where a layout group is present this does
+        /// nothing and the layout keeps its authority.
+        /// </summary>
+        private static void PlaceBelowLast(GameObject row, GameObject group)
+        {
+            var parent = row.transform.parent;
+            if (parent == null || parent.GetComponent<LayoutGroup>() != null) return;
+
+            var rect = row.GetComponent<RectTransform>();
+            var lowest = float.MaxValue;
+            RectTransform anchor = null;
+
+            foreach (Transform sibling in parent)
+            {
+                if (sibling == row.transform) continue;
+                var other = sibling as RectTransform;
+                if (other == null || !sibling.gameObject.activeSelf) continue;
+
+                var bottom = other.anchoredPosition.y - other.rect.height;
+                if (bottom < lowest)
+                {
+                    lowest = bottom;
+                    anchor = other;
+                }
+            }
+
+            if (anchor == null) return;
+
+            var gap = Mathf.Abs(group.GetComponent<RectTransform>().rect.height) * 0.15f;
+            rect.anchoredPosition = new Vector2(rect.anchoredPosition.x, lowest - gap);
+
+            Plugin.Log.LogInfo($"UI scale: placed below '{anchor.name}' at y={rect.anchoredPosition.y:0.#}.");
+        }
+
+        /// <summary>
+        /// Sets the group's header to name this setting, and centres the percentage on the
+        /// slider's bar.
         /// </summary>
         private static void Label(GameObject row, GameObject sliderObject)
         {
@@ -199,8 +238,16 @@ namespace LwfUiScale
                 copy.name = "LwfUiScaleValue";
                 copy.transform.SetSiblingIndex(sliderObject.transform.GetSiblingIndex() + 1);
 
-                _valueText = copy.GetComponent<TMP_Text>();
-                _valueText.alignment = TextAlignmentOptions.Right;
+                // The header is a bar, not bare text: cloning it brought its background along,
+                // which drew as a second slider-shaped strip. Only the glyphs are wanted.
+                foreach (var graphic in copy.GetComponentsInChildren<Graphic>(includeInactive: true))
+                {
+                    if (!(graphic is TMP_Text)) Object.Destroy(graphic);
+                }
+
+                _valueText = copy.GetComponent<TMP_Text>()
+                             ?? copy.GetComponentInChildren<TMP_Text>(includeInactive: true);
+                _valueText.alignment = TextAlignmentOptions.Center;
                 _valueText.textWrappingMode = TextWrappingModes.NoWrap;
 
                 // Over the right end of the slider's bar, so the number sits with the control
