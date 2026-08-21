@@ -196,9 +196,16 @@ namespace LwfUiScale
 
             if (header != null)
             {
-                var copy = Object.Instantiate(header.gameObject, sliderObject.transform.parent);
+                // A child of the slider, not a sibling of it.
+                //
+                // The container's VerticalLayoutGroup has childControlHeight off, so it spaces
+                // rows by their own rect height and nothing else — a row is free to overflow its
+                // box, and the layout will not notice. ScreenMode holds a header and one bar in
+                // 150 units; adding a third child made this row's contents taller than the box it
+                // is still measured by, and the excess drew over the setting above. Inside the
+                // slider, the number costs the row no height at all.
+                var copy = Object.Instantiate(header.gameObject, sliderObject.transform);
                 copy.name = "LwfUiScaleValue";
-                copy.transform.SetSiblingIndex(sliderObject.transform.GetSiblingIndex() + 1);
 
                 // The header is a bar, not bare text: cloning it brought its background along,
                 // which drew as a second slider-shaped strip. Only the glyphs are wanted.
@@ -212,18 +219,16 @@ namespace LwfUiScale
                 _valueText.alignment = TextAlignmentOptions.Center;
                 _valueText.textWrappingMode = TextWrappingModes.NoWrap;
 
-                // Over the right end of the slider's bar, so the number sits with the control
-                // rather than floating in the row's empty margins.
-                var sliderRect = sliderObject.GetComponent<RectTransform>();
+                // Filling the slider, so the number reads as centred on the bar.
                 var rect = copy.GetComponent<RectTransform>();
-                rect.anchorMin = sliderRect.anchorMin;
-                rect.anchorMax = sliderRect.anchorMax;
-                rect.pivot = sliderRect.pivot;
-                rect.anchoredPosition = sliderRect.anchoredPosition;
-                rect.sizeDelta = sliderRect.sizeDelta;
-                rect.offsetMin = sliderRect.offsetMin;
-                rect.offsetMax = sliderRect.offsetMax;
+                rect.anchorMin = Vector2.zero;
+                rect.anchorMax = Vector2.one;
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.offsetMin = Vector2.zero;
+                rect.offsetMax = Vector2.zero;
+                rect.anchoredPosition = Vector2.zero;
                 rect.localScale = Vector3.one;
+                rect.SetAsLastSibling();
             }
 
             RefreshValueText();
