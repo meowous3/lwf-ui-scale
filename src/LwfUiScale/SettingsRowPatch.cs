@@ -388,10 +388,23 @@ namespace LwfUiScale
             }
 
             var overflow = declaredBottom - actualBottom;
-            // Set rather than derived. The measurement above is right about why the gap is
-            // needed, but the overflow is centred in its box and only part of it lands where it
-            // matters, so the figure that reads correctly is not the figure that is measured.
-            const float needed = 70f;
+
+            // Measured, not chosen. This was a fixed 70 for a while, tuned against 0.21.0 where
+            // FrameRateControll declared 200 for 257 of content. 0.22.0 sets that same group to
+            // 2, so it now overruns its box by about 255 and a fixed figure is not close. The
+            // container spaces rows by declared height alone, so the gap has to come from what
+            // the previous row actually draws.
+            //
+            // The whole overrun, not the overrun less the container's spacing. Subtracting it
+            // leaves a visible gap of exactly the spacing, while every other pair of rows also
+            // gets whatever slack sits between a row's content and its declared box -- ScreenMode
+            // declares 150 for 137 -- so matching only the spacing reads as bunched.
+            var needed = overflow;
+
+            Plugin.Log.LogInfo($"UI scale: '{previous.name}' declares {previous.rect.height:0.#} tall, "
+                               + $"overruns by {overflow:0.#}; spacer {Mathf.Max(0f, needed):0.#}");
+
+            if (needed <= 1f) return;
 
             var spacer = new GameObject("LwfUiScaleSpacer", typeof(RectTransform));
             var rect = spacer.GetComponent<RectTransform>();
@@ -415,6 +428,7 @@ namespace LwfUiScale
 
             return lowest;
         }
+
 
         private static GameObject FindByName(Transform root, string name)
         {
