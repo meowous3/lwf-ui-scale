@@ -2,7 +2,7 @@
 
 BepInEx plugin for **Lazy Witch's Factory**. Adds a **UI Scale** row to Settings → Graphic, from 15% to 200%.
 
-Built against `0.21.0` (Steam app 3971650).
+Built against `0.22.0` (Steam app 3971650).
 
 ![The Graphic settings page with a UI Scale slider below Frame Rate Control](docs/settings-row.png)
 
