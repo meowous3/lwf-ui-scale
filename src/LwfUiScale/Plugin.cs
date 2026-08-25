@@ -11,7 +11,7 @@ namespace LwfUiScale
     /// <summary>
     /// Scales the game's UI, set from a row on the Graphic Settings page.
     /// </summary>
-    [BepInPlugin(PluginGuid, "LWF UI Scale", "0.2.1")]
+    [BepInPlugin(PluginGuid, "LWF UI Scale", "0.3.0")]
     public class Plugin : BaseUnityPlugin
     {
         public const string PluginGuid = "dev.meow.lwfuiscale";

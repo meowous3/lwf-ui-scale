@@ -136,7 +136,17 @@ namespace LwfUiScale
             var row = Object.Instantiate(group, group.transform.parent);
             row.name = OurRow;
             row.SetActive(true);
-            row.transform.SetAsLastSibling();
+
+            // First, not last. The container is a VerticalLayoutGroup with childControlHeight
+            // off, so it spaces rows by the height each one declares -- and FrameRateControll
+            // declares 2 while drawing four children, overrunning whatever follows it. A spacer
+            // used to make up the difference, sized from where that row actually draws; the
+            // measurement runs before Unity's layout pass has settled, so unchanged content
+            // read 255 on one build and 38.5 on the next.
+            //
+            // Nothing precedes the first child, so nothing can overrun into it. That holds
+            // whatever the devs declare for their own groups.
+            row.transform.SetAsFirstSibling();
 
             StripLocalisation(row);
 
@@ -207,8 +217,6 @@ namespace LwfUiScale
             Label(row, sliderObject);
 
             FitRowHeight(row);
-            _step = "pad";
-            PadForOverflow(row);
         }
 
 
@@ -344,91 +352,6 @@ namespace LwfUiScale
             if (Mathf.Approximately(before, total)) return;
             Plugin.Log.LogInfo($"UI scale: row sized {total:0.#} for {count} children.");
         }
-
-        /// <summary>
-        /// Adds a spacer when the setting above draws outside its own box.
-        ///
-        /// FrameRateControll declares 200 units and stacks a toggle, a label and a pull-down
-        /// inside it; the pull-down hangs below that. Nothing followed it before, so the overflow
-        /// never showed. The container spaces rows by declared height alone — childControlHeight
-        /// is off — so it cannot see the difference, and no amount of positioning this row avoids
-        /// being drawn over.
-        ///
-        /// The gap is measured rather than chosen: the lowest pixel any descendant of the
-        /// previous row actually occupies, against where that row claims to end.
-        /// </summary>
-        private static void PadForOverflow(GameObject row)
-        {
-            var parent = row.transform.parent as RectTransform;
-            if (parent == null) return;
-
-            var index = row.transform.GetSiblingIndex();
-            RectTransform previous = null;
-            for (var i = index - 1; i >= 0; i--)
-            {
-                var candidate = parent.GetChild(i) as RectTransform;
-                if (candidate != null && candidate.gameObject.activeInHierarchy)
-                {
-                    previous = candidate;
-                    break;
-                }
-            }
-
-            if (previous == null) return;
-
-            // Measured in the container's own space. GetWorldCorners answers in screen pixels,
-            // and a sizeDelta is in canvas units — on a 4K display those differ by the canvas
-            // scale, so a spacer sized from the raw figure was about twice what was needed, and
-            // changed size with the UI scale setting.
-            var declaredBottom = Bottom(previous, parent);
-            var actualBottom = declaredBottom;
-            foreach (var child in previous.GetComponentsInChildren<RectTransform>(includeInactive: false))
-            {
-                actualBottom = Mathf.Min(actualBottom, Bottom(child, parent));
-            }
-
-            var overflow = declaredBottom - actualBottom;
-
-            // Measured, not chosen. This was a fixed 70 for a while, tuned against 0.21.0 where
-            // FrameRateControll declared 200 for 257 of content. 0.22.0 sets that same group to
-            // 2, so it now overruns its box by about 255 and a fixed figure is not close. The
-            // container spaces rows by declared height alone, so the gap has to come from what
-            // the previous row actually draws.
-            //
-            // The whole overrun, not the overrun less the container's spacing. Subtracting it
-            // leaves a visible gap of exactly the spacing, while every other pair of rows also
-            // gets whatever slack sits between a row's content and its declared box -- ScreenMode
-            // declares 150 for 137 -- so matching only the spacing reads as bunched.
-            var needed = overflow;
-
-            Plugin.Log.LogInfo($"UI scale: '{previous.name}' declares {previous.rect.height:0.#} tall, "
-                               + $"overruns by {overflow:0.#}; spacer {Mathf.Max(0f, needed):0.#}");
-
-            if (needed <= 1f) return;
-
-            var spacer = new GameObject("LwfUiScaleSpacer", typeof(RectTransform));
-            var rect = spacer.GetComponent<RectTransform>();
-            rect.SetParent(parent, worldPositionStays: false);
-            rect.SetSiblingIndex(index);
-            rect.sizeDelta = new Vector2(0f, needed);
-        }
-
-        /// <summary>The lowest edge of a rect, in <paramref name="space"/>'s local units — the
-        /// same units a sizeDelta is written in.</summary>
-        private static float Bottom(RectTransform rect, Transform space)
-        {
-            var corners = new Vector3[4];
-            rect.GetWorldCorners(corners);
-
-            var lowest = float.MaxValue;
-            foreach (var corner in corners)
-            {
-                lowest = Mathf.Min(lowest, space.InverseTransformPoint(corner).y);
-            }
-
-            return lowest;
-        }
-
 
         private static GameObject FindByName(Transform root, string name)
         {
